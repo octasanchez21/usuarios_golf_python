@@ -1,0 +1,14 @@
+[
+    {
+        "employeeNo": "4",
+        "name": "Luciano",
+        "pin": "12345",
+        "valid": {
+            "enable": false,
+            "belongGroup": "empleado"
+        },
+        "faceURL": "https://t4.ftcdn.net/jpg/00/85/77/75/360_F_85777561_m6EMdjM6Knkz7OLJmN5zr5ZeK359S3G5.jpg",
+        "custom_field1": "Activo",
+        "custom_field2": "1"
+    }
+]
