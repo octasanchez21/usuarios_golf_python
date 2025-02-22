@@ -1,0 +1,4 @@
+requests
+mimetypes
+urllib3
+tago
