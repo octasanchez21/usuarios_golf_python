@@ -13,7 +13,6 @@ from requests.auth import HTTPDigestAuth
 from dotenv import load_dotenv
 load_dotenv()
 
-import os
 
 host = os.getenv("HOST")
 devIndex = os.getenv("DEV_INDEX")
