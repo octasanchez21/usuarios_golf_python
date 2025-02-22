@@ -10,12 +10,17 @@ from tago import Analysis
 from requests.auth import HTTPDigestAuth
 
 # Configuración
-host = "34.221.158.219"
-devIndex = "F5487AA0-2485-4CFB-9304-835DCF118B43"
-url_delete_face = f"http://{host}/ISAPI/Intelligent/FDLib/FDSearch/Delete?format=json&devIndex={devIndex}"
-url_create_face = f"http://{host}/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json&devIndex={devIndex}"
-username = 'admin'
-password = 'Inteliksa6969'
+from dotenv import load_dotenv
+load_dotenv()
+
+import os
+
+host = os.getenv("HOST")
+devIndex = os.getenv("DEV_INDEX")
+username = os.getenv("USERNAME")
+password = os.getenv("PASSWORD")
+ANALYSIS_TOKEN = os.getenv("ANALYSIS_TOKEN")
+
 
 # Función para hacer peticiones con autenticación Digest
 def digest_request(url, method, body=None):
