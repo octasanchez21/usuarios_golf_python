@@ -9,6 +9,8 @@ from urllib import request
 from tago import Analysis
 from requests.auth import HTTPDigestAuth
 
+port = int(os.environ.get("PORT", 10000))  # Usar el puerto que Render asigna
+app.run(host="0.0.0.0", port=port)
 # Configuración
 from dotenv import load_dotenv
 load_dotenv()
