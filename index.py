@@ -8,6 +8,16 @@ import json
 from urllib import request
 from tago import Analysis
 from requests.auth import HTTPDigestAuth
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Hello, World! This is my Flask app on Render."
+
+if __name__ == '__main__':
+    app.run(debug=True)
 
 port = int(os.environ.get("PORT", 10000))  # Usar el puerto que Render asigna
 app.run(host="0.0.0.0", port=port)
