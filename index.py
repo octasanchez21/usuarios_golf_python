@@ -16,11 +16,11 @@ app = Flask(__name__)
 def home():
     return "Hello, World! This is my Flask app on Render."
 
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))  # Render asigna un puerto automáticamente
+    app.run(host="0.0.0.0", port=port)
 
-port = int(os.environ.get("PORT", 10000))  # Usar el puerto que Render asigna
-app.run(host="0.0.0.0", port=port)
+
 # Configuración
 from dotenv import load_dotenv
 load_dotenv()
