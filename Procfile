@@ -1,1 +1,2 @@
-web: python index.py
+web: pip install -r requirements.txt python index.py
+
