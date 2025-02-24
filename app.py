@@ -1,38 +1,41 @@
 import os
-import json
 import requests
+import json
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
+from tago import Analysis
 from requests.auth import HTTPDigestAuth
 
-# Cargar variables de entorno
+
+# Conf
 load_dotenv()
 
-# Configuración
+
 host = os.getenv("HOST")
 devIndex = os.getenv("DEV_INDEX")
 username = os.getenv("USERNAME")
 password = os.getenv("PASSWORD")
+ANALYSIS_TOKEN = os.getenv("ANALYSIS_TOKEN")
 
 app = Flask(__name__)
 
 # Función para hacer peticiones con autenticación Digest
 def digest_request(url, method, body=None):
     headers = {"Content-Type": "application/json"}
-    auth = HTTPDigestAuth(username, password)
-
+    auth = HTTPDigestAuth(username, password) # Clase de la libreria "requests.auth" donde implementa la autenticacion Digest, pasandole el usuario y contraseña establecido
+    
     if method == 'POST':
         response = requests.post(url, headers=headers, auth=auth, json=body)
     elif method == 'PUT':
         response = requests.put(url, headers=headers, auth=auth, json=body)
-
+    
     if response.status_code != 200:
-        return None, f"Error {response.status_code}: {response.text}"
-
-    return response.json(), None
+        print(f"Error {response.status_code}: {response.text}")
+        return None
+    
+    return response.json()
 
 # Obtener usuarios de Hikvision
-@app.route('/usuarios', methods=['GET'])
 def get_hikvision_users():
     url = f"http://{host}/ISAPI/AccessControl/UserInfo/Search?format=json&devIndex={devIndex}"
     body = {
@@ -42,25 +45,20 @@ def get_hikvision_users():
             "maxResults": 400
         }
     }
-    response, error = digest_request(url, "POST", body)
-    if error:
-        return jsonify({"error": error}), 500
-    return jsonify(response)
+    return digest_request(url, "POST", body)
 
 # Agregar usuario en Hikvision
-@app.route('/usuarios', methods=['POST'])
-def add_hikvision_user():
-    data = request.json
+def add_hikvision_user(usuario):
     url = f"http://{host}/ISAPI/AccessControl/UserInfo/Record?format=json&devIndex={devIndex}"
     body = {
         "UserInfo": [{
-            "employeeNo": data["employeeNo"],
-            "name": data["name"],
+            "employeeNo": usuario["employeeNo"],
+            "name": usuario["name"],
             "userType": "normal",
             "gender": "male",
             "localUIRight": False,
             "Valid": {
-                "enable": data["valid"]["enable"],
+                "enable": usuario["valid"]["enable"],
                 "beginTime": "2023-09-26T00:00:00",
                 "endTime": "2037-12-31T23:59:59",
                 "timeType": "local"
@@ -68,34 +66,25 @@ def add_hikvision_user():
             "doorRight": "1",
             "RightPlan": [{"doorNo": 1, "planTemplateNo": "1"}],
             "userVerifyMode": "",
-            "password": data["pin"]
+            "password": usuario["pin"]
         }]
     }
-    response, error = digest_request(url, "POST", body)
-    if error:
-        return jsonify({"error": error}), 500
-    return jsonify(response)
+    return digest_request(url, "POST", body)
 
 # Modificar usuario en Hikvision
-@app.route('/usuarios/<string:employeeNo>', methods=['PUT'])
-def update_hikvision_user(employeeNo):
-    data = request.json
+def update_hikvision_user(usuario):
     url = f"http://{host}/ISAPI/AccessControl/UserInfo/Modify?format=json&devIndex={devIndex}"
     body = {
         "UserInfo": {
-            "employeeNo": employeeNo,
-            "name": data["name"],
-            "Valid": {"enable": data["valid"]["enable"]},
-            "password": data["pin"]
+            "employeeNo": usuario["employeeNo"],
+            "name": usuario["name"],
+            "Valid": {"enable": usuario["valid"]["enable"]},
+            "password": usuario["pin"]
         }
     }
-    response, error = digest_request(url, "PUT", body)
-    if error:
-        return jsonify({"error": error}), 500
-    return jsonify(response)
+    return digest_request(url, "PUT", body)
 
 # Eliminar usuario en Hikvision
-@app.route('/usuarios/<string:employeeNo>', methods=['DELETE'])
 def delete_hikvision_user(employeeNo):
     url = f"http://{host}/ISAPI/AccessControl/UserInfoDetail/Delete?format=json&devIndex={devIndex}"
     body = {
@@ -104,71 +93,77 @@ def delete_hikvision_user(employeeNo):
             "EmployeeNoList": [{"employeeNo": employeeNo}]
         }
     }
-    response, error = digest_request(url, "PUT", body)
-    if error:
-        return jsonify({"error": error}), 500
-    return jsonify(response)
+    return digest_request(url, "PUT", body)
 
 # Sincronización de usuarios
-@app.route('/sync', methods=['POST'])
-def sync_users():
-    try:
-        with open("./usuarios_sap.json", "r", encoding="utf-8") as file:
-            usuarios_sap = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        return jsonify({"error": f"Error al cargar usuarios de SAP: {str(e)}"}), 500
+def sync_users(context):
+    # Leer archivo JSON con usuarios de SAP
+    try:    # "open" para abrir el archivo en modo lectura "r", para que se lea correctamente se utiliza "encoding="utf-8"".
+        with open("./usuarios_sap.json", "r", encoding="utf-8") as file: # El bloque "with" garantiza cerrar el archivo automaticamente después de usarlo.
+            usuarios_sap = json.load(file) # Convierte el JSON en una lista de diccionarios, cada uno representa un usuario.
+        context.log(f"Usuarios SAP cargados correctamente: {len(usuarios_sap)} usuarios encontrados.") # "len" indica cuantos usuarios se cargaron.
+    except (FileNotFoundError, json.JSONDecodeError) as e: # "FileNotFoundError" no existe el archivo, "json.JSONDecodeError" formato JSON no valido.
+        context.log(f"Error al cargar usuarios de SAP: {e}")
+        return
 
     # Obtener usuarios actuales de Hikvision
-    hikvision_data, error = get_hikvision_users()
-    if error:
-        return jsonify({"error": "Error al obtener usuarios de Hikvision"}), 500
+    hikvision_data = get_hikvision_users()
+    if not hikvision_data: # Es "none", lo que significa que hubo un error
+        context.log("Error al obtener usuarios de Hikvision.")
+        return
 
-    hikvision_users = hikvision_data.get("UserInfoSearch", {}).get("UserInfo", [])
-    hikvision_employee_nos = [user["employeeNo"] for user in hikvision_users]
-    sap_employee_nos = [user["employeeNo"] for user in usuarios_sap]
+    # Accede al objeto que contiene los usuarios "get("UserInfoSearch", {})"
+    hikvision_users = hikvision_data.get("UserInfoSearch", {}).get("UserInfo", []) #  ".get("UserInfo", []) "para obtener la lista de usuarios.
+    context.log(f"Usuarios Hikvision cargados correctamente: {len(hikvision_users)} usuarios encontrados.")
 
-    resultados = {"nuevos": [], "actualizados": [], "eliminados": []}
+    # Crear conjuntos de employeeNo para comparar
+    hikvision_employee_nos = [user["employeeNo"] for user in hikvision_users] # Crea una lista de los "employeeNo" de hikvision
+    sap_employee_nos = [user["employeeNo"] for user in usuarios_sap] # Crea una lista de los "employeeNo" de SAP JSON.
 
     # Identificar usuarios nuevos
+    # Crea una lista de usuarios cuyo "employeeNo" no esten en "hikvision_employee_nos"
     nuevos_usuarios = [user for user in usuarios_sap if user["employeeNo"] not in hikvision_employee_nos]
-    for usuario in nuevos_usuarios:
-        response, error = digest_request(
-            f"http://{host}/ISAPI/AccessControl/UserInfo/Record?format=json&devIndex={devIndex}",
-            "POST",
-            {"UserInfo": [usuario]},
-        )
-        if response:
-            resultados["nuevos"].append(usuario["employeeNo"])
+    for usuario in nuevos_usuarios: # Itera sobre la lista "nuevos_usuarios"
+        if add_hikvision_user(usuario): # Llama la función "add_hikvision_user" para agregar cada usuario al hikvision.
+            context.log(f"✅ Usuario {usuario['employeeNo']} agregado.")
 
     # Identificar usuarios para actualizar
-    usuarios_para_actualizar = [
-        usuario for usuario in usuarios_sap if any(
-            user["employeeNo"] == usuario["employeeNo"] and (
+    usuarios_para_actualizar = [ # Se crea una lista de usuarios que necesitan actualización
+     # "usuario" elemento incluida en la nueva lista si cumple la condición
+        usuario for usuario in usuarios_sap  # "for usuario in usuarios_sap" Itera sobre cada usuario en la lista.
+        if any( # La función (any) verifica si al menos un elemento es "true". any(condición for elemento in iterable)
+            user["employeeNo"] == usuario["employeeNo"] and ( # Verifica si el "employeeNo" de SAP coincide con el "employeeNo" de un usuario Hikvision
+            # Verifica si el nombre del usuario en SAP es diferente al nombre del usuario en Hikvision. 
+            # Verifica si el estado de validez (Valid["enable"]) del usuario en SAP es diferente al estado de validez en Hikvision.
                 user["name"] != usuario["name"] or user["Valid"]["enable"] != usuario["valid"]["enable"]
             ) for user in hikvision_users
         )
     ]
-    for usuario in usuarios_para_actualizar:
-        response, error = digest_request(
-            f"http://{host}/ISAPI/AccessControl/UserInfo/Modify?format=json&devIndex={devIndex}",
-            "PUT",
-            {"UserInfo": usuario},
-        )
-        if response:
-            resultados["actualizados"].append(usuario["employeeNo"])
+    for usuario in usuarios_para_actualizar: # Contiene los usuario que necesitas ser actualizados
+        if update_hikvision_user(usuario): # Llama la funcon para enviar la solicitud para actualizar los datos del usuario.
+            context.log(f"✅ Usuario {usuario['employeeNo']} actualizado.")
 
     # Identificar usuarios a eliminar
-    usuarios_para_eliminar = [user for user in hikvision_users if user["employeeNo"] not in sap_employee_nos]
-    for user in usuarios_para_eliminar:
-        response, error = digest_request(
-            f"http://{host}/ISAPI/AccessControl/UserInfoDetail/Delete?format=json&devIndex={devIndex}",
-            "PUT",
-            {"UserInfoDetail": {"mode": "byEmployeeNo", "EmployeeNoList": [{"employeeNo": user["employeeNo"]}]}},
-        )
-        if response:
-            resultados["eliminados"].append(user["employeeNo"])
+    usuarios_para_eliminar = [  # Crea una lista para los usuarios que no estan en SAP
+       # Filtra usuarios cuyo "employeeNo" no esta en "sap_employee_nos".
+        user for user in hikvision_users if user["employeeNo"] not in sap_employee_nos
+    ]
+    for user in usuarios_para_eliminar: # Itera la lista de usuarios que debe eliminar
+        if delete_hikvision_user(user["employeeNo"]): # Llama la funcion que elimina el usuario pasandole el "employeeNo"
+            context.log(f"🗑️ Usuario {user['employeeNo']} eliminado.")
 
-    return jsonify(resultados)
+    context.log("Proceso completado.")
+
+# Análisis principal
+def my_analysis(context, scope):
+    context.log('Iniciando análisis...')
+    context.log('Alcance del análisis:', scope)
+    sync_users(context)
+
+
+# Inicializar el análisis
+ANALYSIS_TOKEN = 'a-6d6726c2-f167-4610-a9e5-5a08a92b6bb3'  # Reemplaza con tu token de análisis de TagoIO
+Analysis(ANALYSIS_TOKEN).init(my_analysis)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
