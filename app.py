@@ -151,5 +151,5 @@ Analysis(ANALYSIS_TOKEN).init(my_analysis)
 
 # Corregir el puerto para Render
 if __name__ == '__main__':
-    port = int(os.getenv("PORT", 5000))  # Usar el puerto que Render proporciona
+    port = int(os.environ.get("PORT", 5000))  # Usa el puerto que Render proporciona
     app.run(host='0.0.0.0', port=port, debug=True)
