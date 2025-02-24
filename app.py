@@ -18,6 +18,14 @@ ANALYSIS_TOKEN = os.getenv("ANALYSIS_TOKEN")
 
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "Hello, Render!"
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))  # Usa el puerto de Render
+    app.run(host='0.0.0.0', port=port)
+
 # Función para hacer peticiones con autenticación Digest
 def digest_request(url, method, body=None):
     headers = {"Content-Type": "application/json"}
@@ -149,7 +157,3 @@ def my_analysis(context, scope):
 ANALYSIS_TOKEN = 'a-6d6726c2-f167-4610-a9e5-5a08a92b6bb3'
 Analysis(ANALYSIS_TOKEN).init(my_analysis)
 
-# Corregir el puerto para Render
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Usa el puerto que Render proporciona
-    app.run(host='0.0.0.0', port=port, debug=True)
