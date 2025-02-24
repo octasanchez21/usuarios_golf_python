@@ -1,6 +1,3 @@
-# Tener en cuenta peticion POST para consultar usuarios MAX 30 usuarios
-
-
 import os
 import requests
 import mimetypes
@@ -8,17 +5,6 @@ import json
 from urllib import request
 from tago import Analysis
 from requests.auth import HTTPDigestAuth
-from flask import Flask
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Hello, World! This is my Flask app on Render."
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render asigna un puerto automáticamente
-    app.run(host="0.0.0.0", port=port)
 
 
 # Configuración
