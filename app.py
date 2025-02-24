@@ -7,9 +7,8 @@ from tago import Analysis
 from requests.auth import HTTPDigestAuth
 
 
-# Conf
+# Cargar variables de entorno
 load_dotenv()
-
 
 host = os.getenv("HOST")
 devIndex = os.getenv("DEV_INDEX")
@@ -22,7 +21,7 @@ app = Flask(__name__)
 # Función para hacer peticiones con autenticación Digest
 def digest_request(url, method, body=None):
     headers = {"Content-Type": "application/json"}
-    auth = HTTPDigestAuth(username, password) # Clase de la libreria "requests.auth" donde implementa la autenticacion Digest, pasandole el usuario y contraseña establecido
+    auth = HTTPDigestAuth(username, password)
     
     if method == 'POST':
         response = requests.post(url, headers=headers, auth=auth, json=body)
@@ -97,59 +96,45 @@ def delete_hikvision_user(employeeNo):
 
 # Sincronización de usuarios
 def sync_users(context):
-    # Leer archivo JSON con usuarios de SAP
-    try:    # "open" para abrir el archivo en modo lectura "r", para que se lea correctamente se utiliza "encoding="utf-8"".
-        with open("./usuarios_sap.json", "r", encoding="utf-8") as file: # El bloque "with" garantiza cerrar el archivo automaticamente después de usarlo.
-            usuarios_sap = json.load(file) # Convierte el JSON en una lista de diccionarios, cada uno representa un usuario.
-        context.log(f"Usuarios SAP cargados correctamente: {len(usuarios_sap)} usuarios encontrados.") # "len" indica cuantos usuarios se cargaron.
-    except (FileNotFoundError, json.JSONDecodeError) as e: # "FileNotFoundError" no existe el archivo, "json.JSONDecodeError" formato JSON no valido.
+    try:
+        with open("./usuarios_sap.json", "r", encoding="utf-8") as file:
+            usuarios_sap = json.load(file)
+        context.log(f"Usuarios SAP cargados correctamente: {len(usuarios_sap)} usuarios encontrados.")
+    except (FileNotFoundError, json.JSONDecodeError) as e:
         context.log(f"Error al cargar usuarios de SAP: {e}")
         return
 
-    # Obtener usuarios actuales de Hikvision
     hikvision_data = get_hikvision_users()
-    if not hikvision_data: # Es "none", lo que significa que hubo un error
+    if not hikvision_data:
         context.log("Error al obtener usuarios de Hikvision.")
         return
 
-    # Accede al objeto que contiene los usuarios "get("UserInfoSearch", {})"
-    hikvision_users = hikvision_data.get("UserInfoSearch", {}).get("UserInfo", []) #  ".get("UserInfo", []) "para obtener la lista de usuarios.
+    hikvision_users = hikvision_data.get("UserInfoSearch", {}).get("UserInfo", [])
     context.log(f"Usuarios Hikvision cargados correctamente: {len(hikvision_users)} usuarios encontrados.")
 
-    # Crear conjuntos de employeeNo para comparar
-    hikvision_employee_nos = [user["employeeNo"] for user in hikvision_users] # Crea una lista de los "employeeNo" de hikvision
-    sap_employee_nos = [user["employeeNo"] for user in usuarios_sap] # Crea una lista de los "employeeNo" de SAP JSON.
+    hikvision_employee_nos = [user["employeeNo"] for user in hikvision_users]
+    sap_employee_nos = [user["employeeNo"] for user in usuarios_sap]
 
-    # Identificar usuarios nuevos
-    # Crea una lista de usuarios cuyo "employeeNo" no esten en "hikvision_employee_nos"
     nuevos_usuarios = [user for user in usuarios_sap if user["employeeNo"] not in hikvision_employee_nos]
-    for usuario in nuevos_usuarios: # Itera sobre la lista "nuevos_usuarios"
-        if add_hikvision_user(usuario): # Llama la función "add_hikvision_user" para agregar cada usuario al hikvision.
+    for usuario in nuevos_usuarios:
+        if add_hikvision_user(usuario):
             context.log(f"✅ Usuario {usuario['employeeNo']} agregado.")
 
-    # Identificar usuarios para actualizar
-    usuarios_para_actualizar = [ # Se crea una lista de usuarios que necesitan actualización
-     # "usuario" elemento incluida en la nueva lista si cumple la condición
-        usuario for usuario in usuarios_sap  # "for usuario in usuarios_sap" Itera sobre cada usuario en la lista.
-        if any( # La función (any) verifica si al menos un elemento es "true". any(condición for elemento in iterable)
-            user["employeeNo"] == usuario["employeeNo"] and ( # Verifica si el "employeeNo" de SAP coincide con el "employeeNo" de un usuario Hikvision
-            # Verifica si el nombre del usuario en SAP es diferente al nombre del usuario en Hikvision. 
-            # Verifica si el estado de validez (Valid["enable"]) del usuario en SAP es diferente al estado de validez en Hikvision.
+    usuarios_para_actualizar = [
+        usuario for usuario in usuarios_sap
+        if any(
+            user["employeeNo"] == usuario["employeeNo"] and (
                 user["name"] != usuario["name"] or user["Valid"]["enable"] != usuario["valid"]["enable"]
             ) for user in hikvision_users
         )
     ]
-    for usuario in usuarios_para_actualizar: # Contiene los usuario que necesitas ser actualizados
-        if update_hikvision_user(usuario): # Llama la funcon para enviar la solicitud para actualizar los datos del usuario.
+    for usuario in usuarios_para_actualizar:
+        if update_hikvision_user(usuario):
             context.log(f"✅ Usuario {usuario['employeeNo']} actualizado.")
 
-    # Identificar usuarios a eliminar
-    usuarios_para_eliminar = [  # Crea una lista para los usuarios que no estan en SAP
-       # Filtra usuarios cuyo "employeeNo" no esta en "sap_employee_nos".
-        user for user in hikvision_users if user["employeeNo"] not in sap_employee_nos
-    ]
-    for user in usuarios_para_eliminar: # Itera la lista de usuarios que debe eliminar
-        if delete_hikvision_user(user["employeeNo"]): # Llama la funcion que elimina el usuario pasandole el "employeeNo"
+    usuarios_para_eliminar = [user for user in hikvision_users if user["employeeNo"] not in sap_employee_nos]
+    for user in usuarios_para_eliminar:
+        if delete_hikvision_user(user["employeeNo"]):
             context.log(f"🗑️ Usuario {user['employeeNo']} eliminado.")
 
     context.log("Proceso completado.")
@@ -160,10 +145,11 @@ def my_analysis(context, scope):
     context.log('Alcance del análisis:', scope)
     sync_users(context)
 
-
 # Inicializar el análisis
-ANALYSIS_TOKEN = 'a-6d6726c2-f167-4610-a9e5-5a08a92b6bb3'  # Reemplaza con tu token de análisis de TagoIO
+ANALYSIS_TOKEN = 'a-6d6726c2-f167-4610-a9e5-5a08a92b6bb3'
 Analysis(ANALYSIS_TOKEN).init(my_analysis)
 
+# Corregir el puerto para Render
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.getenv("PORT", 5000))  # Usar el puerto que Render proporciona
+    app.run(host='0.0.0.0', port=port, debug=True)
