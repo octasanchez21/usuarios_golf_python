@@ -1,120 +1,119 @@
 import os
 import requests
-from flask import Flask, request, jsonify
+import mimetypes
+import json
+from urllib import request
+from dotenv import load_dotenv
+from tago import Analysis
 from requests.auth import HTTPDigestAuth
 
-app = Flask(__name__)
+# Cargar variables desde el archivo .env
+load_dotenv()
 
 # Configuración de Hikvision
-host = "192.168.1.68"  # Cambia esto por la IP de tu dispositivo Hikvision
-devIndex = 1
-username = "admin"
-password = "12345"
+host = os.getenv("HOST")
+devIndex = os.getenv("DEV_INDEX")
+username = os.getenv("USERNAME")
+password = os.getenv("PASSWORD")
+ANALYSIS_TOKEN = os.getenv("ANALYSIS_TOKEN")
 
-# Configuración de TagoIO
-tago_token = os.getenv("TAGO_TOKEN")  # Asegúrate de que este token esté en tus variables de entorno
+# URLs de Hikvision
+url_delete_face = f"http://{host}/ISAPI/Intelligent/FDLib/FDSearch/Delete?format=json&devIndex={devIndex}"
+url_create_face = f"http://{host}/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json&devIndex={devIndex}"
+url_sync_users = f"http://{host}/ISAPI/AccessControl/UserInfo/Search?format=json"
 
-def digest_request(url, method, data=None):
-    try:
-        headers = {"Content-Type": "application/json"}
-        auth = HTTPDigestAuth(username, password)
-        if method == "POST":
-            response = requests.post(url, json=data, headers=headers, auth=auth)
-        elif method == "PUT":
-            response = requests.put(url, json=data, headers=headers, auth=auth)
-        elif method == "GET":
-            response = requests.get(url, headers=headers, auth=auth)
-        else:
-            return None, "Método HTTP no soportado"
-
-        return response.json(), None if response.status_code == 200 else response.text
-    except Exception as e:
-        return None, str(e)
-
-def send_to_tago(variable, value, unit=None):
-    url = "https://api.tago.io/data"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": tago_token
-    }
-    payload = {"variable": variable, "value": value}
-    if unit:
-        payload["unit"] = unit
-    
-    response = requests.post(url, headers=headers, json=[payload])
-    return response.json() if response.status_code == 200 else {"error": response.text}
-
-@app.route('/usuarios', methods=['POST'])
-def add_hikvision_user():
-    data = request.json
-    url = f"http://{host}/ISAPI/AccessControl/UserInfo/Record?format=json&devIndex={devIndex}"
-    body = {
-        "UserInfo": [{
-            "employeeNo": data["employeeNo"],
-            "name": data["name"],
-            "userType": "normal",
-            "gender": "male",
-            "localUIRight": False,
-            "Valid": {
-                "enable": data["valid"]["enable"],
-                "beginTime": "2023-09-26T00:00:00",
-                "endTime": "2037-12-31T23:59:59",
-                "timeType": "local"
-            },
-            "doorRight": "1",
-            "RightPlan": [{"doorNo": 1, "planTemplateNo": "1"}],
-            "userVerifyMode": "",
-            "password": data["pin"]
-        }]
-    }
-
-    response, error = digest_request(url, "POST", body)
-    if error:
-        return jsonify({"error": error}), 500
-
-    tago_response = send_to_tago("nuevo_usuario", data["employeeNo"])
-    return jsonify({"hikvision_response": response, "tago_response": tago_response})
-
-@app.route('/usuarios/<string:employeeNo>', methods=['DELETE'])
-def delete_hikvision_user(employeeNo):
-    url = f"http://{host}/ISAPI/AccessControl/UserInfoDetail/Delete?format=json&devIndex={devIndex}"
-    body = {
-        "UserInfoDetail": {
-            "mode": "byEmployeeNo",
-            "EmployeeNoList": [{"employeeNo": employeeNo}]
+# Función para eliminar rostro de Hikvision
+def delete_face(employee_no, context):
+    payload = {
+        "FaceInfoDelCond": {
+            "faceLibType": "blackFD",
+            "EmployeeNoList": [{"employeeNo": employee_no}]
         }
     }
-    response, error = digest_request(url, "PUT", body)
-    if error:
-        return jsonify({"error": error}), 500
+    try:
+        response = requests.put(url_delete_face, json=payload, auth=HTTPDigestAuth(username, password), timeout=10)
+        if response.status_code == 200:
+            context.log(f"✅ Rostro eliminado para empleado {employee_no}")
+        else:
+            context.log(f"❌ Error eliminando rostro {employee_no}: {response.text}")
+    except Exception as e:
+        context.log(f"⚠️ Error en DELETE para {employee_no}: {e}")
 
-    tago_response = send_to_tago("usuario_eliminado", employeeNo)
-    return jsonify({"hikvision_response": response, "tago_response": tago_response})
+# Función para subir rostro a Hikvision
+def upload_face(employee_no, image_url, context):
+    temp_image_path = f"{employee_no}.jpg"
+    
+    try:
+        # Descargar la imagen
+        request.urlretrieve(image_url, temp_image_path)
 
-@app.route('/sync', methods=['POST'])
-def sync_users():
-    url = f"http://{host}/ISAPI/AccessControl/UserInfo/Search?format=json"
-    response, error = digest_request(url, "POST", {})
-    if error:
-        return jsonify({"error": error}), 500
-    
-    for user in response.get("UserInfoSearch", {}).get("UserInfo", []):
-        send_to_tago("usuario_sincronizado", user["employeeNo"])
-    
-    return jsonify({"message": "Usuarios sincronizados con TagoIO"})
+        # Verificar que la imagen existe
+        if not os.path.exists(temp_image_path) or os.path.getsize(temp_image_path) == 0:
+            context.log(f"❌ Error: No se pudo descargar correctamente la imagen para {employee_no}")
+            return
+        
+        with open(temp_image_path, "rb") as img_file:
+            img_data = img_file.read()
 
-@app.route('/send_to_tago', methods=['POST'])
-def send_custom_data():
-    data = request.json
-    variable = data.get("variable")
-    value = data.get("value")
-    unit = data.get("unit")
-    
-    if not variable or value is None:
-        return jsonify({"error": "Faltan datos"}), 400
-    
-    response = send_to_tago(variable, value, unit)
-    return jsonify(response)
+        file_type = mimetypes.guess_type(temp_image_path)[0] or 'image/jpeg'
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+        face_info = {
+            "FaceInfo": {
+                "employeeNo": employee_no,
+                "faceLibType": "blackFD"
+            }
+        }
+
+        # Enviar la imagen a Hikvision
+        files = {'FaceDataRecord': ("face.jpg", img_data, file_type)}
+        data = {'data': json.dumps(face_info)}
+        response = requests.post(url_create_face, data=data, files=files, auth=HTTPDigestAuth(username, password), timeout=10)
+
+        if response.status_code == 200:
+            context.log(f"✅ Rostro agregado correctamente para {employee_no}")
+        else:
+            context.log(f"❌ Error al agregar rostro para {employee_no}: {response.text}")
+    except Exception as e:
+        context.log(f"⚠️ Error procesando imagen para {employee_no}: {e}")
+    finally:
+        if os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+            context.log(f"🗑️ Archivo temporal eliminado: {temp_image_path}")
+
+# Función principal para sincronizar usuarios
+def sync_users(context):
+    context.log("🔄 Iniciando sincronización de usuarios...")
+
+    # Petición a Hikvision para obtener usuarios
+    try:
+        response = requests.post(url_sync_users, auth=HTTPDigestAuth(username, password), timeout=10)
+        users = response.json().get("UserInfoSearch", {}).get("UserInfo", [])
+    except Exception as e:
+        context.log(f"⚠️ Error obteniendo usuarios: {e}")
+        return
+    
+    if not users:
+        context.log("⚠️ No se encontraron usuarios en Hikvision")
+        return
+
+    for user in users:
+        employee_no = user.get("employeeNo")
+        if not employee_no:
+            continue
+        
+        # Aquí puedes obtener la imagen de TagoIO o SAP (depende de cómo manejes imágenes)
+        image_url = f"https://mi-servidor.com/imagenes/{employee_no}.jpg"  # Ejemplo
+
+        # Eliminar rostro existente y subir nueva imagen
+        delete_face(employee_no, context)
+        upload_face(employee_no, image_url, context)
+
+    context.log("✅ Sincronización completada.")
+
+# Función que inicia el análisis de TagoIO
+def my_analysis(context, scope):
+    context.log("🔍 Iniciando análisis...")
+    sync_users(context)
+
+# Token de TagoIO Analysis
+Analysis(ANALYSIS_TOKEN).init(my_analysis)
